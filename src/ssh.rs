@@ -1,8 +1,22 @@
 use ssh2::Session;
 use std::net::{TcpStream, ToSocketAddrs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use crate::config::Server;
+
+fn expand_tilde(path: &str) -> PathBuf {
+    if path.starts_with("~") {
+        if let Some(home) = std::env::home_dir() {
+            if path.len() == 1 {
+                return home;
+            }
+            if let Some(rest) = path.strip_prefix("~/") {
+                return home.join(rest);
+            }
+        }
+    }
+    PathBuf::from(path)
+}
 
 pub struct SshConnection {
     session: Session,
@@ -31,10 +45,11 @@ impl SshConnection {
         if let Some(password) = &server.password {
             session.userauth_password(&server.username, password)?;
         } else if let Some(private_key) = &server.private_key {
+            let expanded_path = expand_tilde(private_key);
             session.userauth_pubkey_file(
                 &server.username,
                 None,
-                Path::new(private_key),
+                &expanded_path,
                 None,
             )?;
         } else {
