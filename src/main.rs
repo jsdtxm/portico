@@ -29,7 +29,12 @@ fn main() {
     for server in &config.servers {
         println!("Connecting to server: {}", server.name);
         
-        let mut connection = match SshConnection::new(server) {
+        let mut connection = match SshConnection::new(
+            server,
+            config.get_connect_timeout_secs(),
+            config.get_read_timeout_secs(),
+            config.get_write_timeout_secs(),
+        ) {
             Ok(conn) => conn,
             Err(e) => {
                 eprintln!("Error connecting to server {}: {}", server.name, e);

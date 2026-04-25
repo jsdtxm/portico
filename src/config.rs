@@ -4,6 +4,14 @@ use std::fs;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     pub servers: Vec<Server>,
+    pub timeout: Option<TimeoutConfig>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TimeoutConfig {
+    pub connect_timeout_secs: Option<u64>,
+    pub read_timeout_secs: Option<u64>,
+    pub write_timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -29,5 +37,23 @@ impl Config {
         let content = fs::read_to_string(path)?;
         let config: Self = serde_yaml::from_str(&content)?;
         Ok(config)
+    }
+    
+    pub fn get_connect_timeout_secs(&self) -> u64 {
+        self.timeout.as_ref()
+            .and_then(|t| t.connect_timeout_secs)
+            .unwrap_or(5)
+    }
+    
+    pub fn get_read_timeout_secs(&self) -> u64 {
+        self.timeout.as_ref()
+            .and_then(|t| t.read_timeout_secs)
+            .unwrap_or(10)
+    }
+    
+    pub fn get_write_timeout_secs(&self) -> u64 {
+        self.timeout.as_ref()
+            .and_then(|t| t.write_timeout_secs)
+            .unwrap_or(10)
     }
 }

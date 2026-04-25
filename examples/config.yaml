@@ -1,3 +1,8 @@
+timeout:
+  connect_timeout_secs: 5
+  read_timeout_secs: 10
+  write_timeout_secs: 10
+
 servers:
   - name: "server1"
     host: "192.168.1.100"

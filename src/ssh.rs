@@ -1,6 +1,7 @@
 use ssh2::Session;
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::Path;
+use std::time::Duration;
 use crate::config::Server;
 
 pub struct SshConnection {
@@ -8,8 +9,21 @@ pub struct SshConnection {
 }
 
 impl SshConnection {
-    pub fn new(server: &Server) -> Result<Self, Box<dyn std::error::Error>> {
-        let tcp = TcpStream::connect((server.host.as_str(), server.port))?;
+    pub fn new(
+        server: &Server,
+        connect_timeout_secs: u64,
+        read_timeout_secs: u64,
+        write_timeout_secs: u64,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let addr_str = format!("{}:{}", server.host, server.port);
+        let addr = addr_str.to_socket_addrs()?
+            .next()
+            .ok_or("Could not resolve address")?;
+        
+        let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(connect_timeout_secs))?;
+        tcp.set_read_timeout(Some(Duration::from_secs(read_timeout_secs)))?;
+        tcp.set_write_timeout(Some(Duration::from_secs(write_timeout_secs)))?;
+        
         let mut session = Session::new()?;
         session.set_tcp_stream(tcp);
         session.handshake()?;
@@ -40,10 +54,5 @@ impl SshConnection {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.session.channel_direct_tcpip(remote_host, remote_port, None)?;
         Ok(())
-    }
-    
-    pub fn is_connected(&self) -> bool {
-        // 简单的连接状态检查
-        true
     }
 }
