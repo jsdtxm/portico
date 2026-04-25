@@ -1,0 +1,27 @@
+servers:
+  - name: "server1"
+    host: "192.168.1.100"
+    port: 22
+    username: "user"
+    password: "password"  # 或者使用 private_key
+    # private_key: "/path/to/private/key"
+    forwardings:
+      - local_port: 8080
+        remote_host: "localhost"
+        remote_port: 80
+      - local_port: 3306
+        remote_host: "localhost"
+        remote_port: 3306
+
+  - name: "server2"
+    host: "192.168.1.101"
+    port: 22
+    username: "user"
+    private_key: "/home/user/.ssh/id_rsa"
+    forwardings:
+      - local_port: 2222
+        remote_host: "localhost"
+        remote_port: 22
+      - local_port: 8443
+        remote_host: "localhost"
+        remote_port: 443

@@ -1,3 +1,90 @@
+mod cli;
+mod config;
+mod ssh;
+mod monitor;
+
+use clap::Parser;
+use cli::Cli;
+use config::Config;
+use ssh::SshConnection;
+use monitor::Monitor;
+use std::thread;
+use std::time::Duration;
+use std::sync::{Arc, Mutex};
+
 fn main() {
-    println!("Hello, world!");
+    let cli = Cli::parse();
+    
+    println!("Loading config from: {}", cli.config_file);
+    let config = match Config::load_from_file(&cli.config_file) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Error loading config: {}", e);
+            return;
+        }
+    };
+    
+    let monitor = Arc::new(Mutex::new(Monitor::new()));
+    
+    for server in &config.servers {
+        println!("Connecting to server: {}", server.name);
+        
+        let mut connection = match SshConnection::new(server) {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("Error connecting to server {}: {}", server.name, e);
+                continue;
+            }
+        };
+        
+        for forwarding in &server.forwardings {
+            println!("Forwarding local port {} to {}:{}", 
+                     forwarding.local_port, forwarding.remote_host, forwarding.remote_port);
+            
+            match connection.forward_port(
+                forwarding.local_port,
+                &forwarding.remote_host,
+                forwarding.remote_port
+            ) {
+                Ok(_) => {
+                    println!("Port forwarding established");
+                    monitor.lock().unwrap().add_port(forwarding.local_port);
+                }
+                Err(e) => {
+                    eprintln!("Error setting up port forwarding: {}", e);
+                }
+            }
+        }
+    }
+    
+    // 启动监控线程
+    let monitor_clone = Arc::clone(&monitor);
+    thread::spawn(move || {
+        loop {
+            monitor_clone.lock().unwrap().update();
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+    
+    // 主循环
+    loop {
+        println!("\nPort forwarding status:");
+        for server in &config.servers {
+            for forwarding in &server.forwardings {
+                let unknown = "Unknown".to_string();
+                let zero_traffic = (0, 0);
+                let guard = monitor.lock().unwrap();
+                let process = guard.get_process_for_port(forwarding.local_port)
+                    .unwrap_or(&unknown);
+                let traffic = guard.get_traffic_for_port(forwarding.local_port)
+                    .unwrap_or(&zero_traffic);
+                
+                println!("{}:{} -> {}:{} (Process: {}, Traffic: {} sent, {} received)", 
+                         "localhost", forwarding.local_port, 
+                         forwarding.remote_host, forwarding.remote_port, 
+                         process, traffic.0, traffic.1);
+            }
+        }
+        thread::sleep(Duration::from_secs(5));
+    }
 }
