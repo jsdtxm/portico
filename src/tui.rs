@@ -75,21 +75,21 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.previous();
             }
-            KeyCode::Home => {
-                self.table_state.select(Some(0));
-            }
-            KeyCode::End => {
-                let count = self.monitor.lock().unwrap().iter_active_forwardings().count();
-                if count > 0 {
-                    self.table_state.select(Some(count - 1));
-                }
-            }
             _ => {}
         }
     }
 
+    fn get_total_rows(&self) -> usize {
+        let monitor = self.monitor.lock().unwrap();
+        let mut count = 0;
+        for server in monitor.iter_servers() {
+            count += 1 + server.forwardings.len();
+        }
+        count
+    }
+
     fn next(&mut self) {
-        let count = self.monitor.lock().unwrap().iter_active_forwardings().count();
+        let count = self.get_total_rows();
         let i = match self.table_state.selected() {
             Some(i) => {
                 if i >= count - 1 {
@@ -104,7 +104,7 @@ impl App {
     }
 
     fn previous(&mut self) {
-        let count = self.monitor.lock().unwrap().iter_active_forwardings().count();
+        let count = self.get_total_rows();
         let i = match self.table_state.selected() {
             Some(i) => {
                 if i == 0 {
@@ -137,7 +137,10 @@ impl App {
 
     fn render_header(&self, f: &mut ratatui::Frame, area: Rect) {
         let monitor = self.monitor.lock().unwrap();
-        let forwarding_count = monitor.iter_active_forwardings().count();
+        let server_count = monitor.iter_servers().count();
+        let total_forwardings: usize = monitor.iter_servers()
+            .map(|s| s.forwardings.len())
+            .sum();
 
         let title = Line::from(vec![
             Span::styled(" Portico ", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
@@ -150,10 +153,11 @@ impl App {
             .border_style(Style::default().fg(Color::Cyan));
 
         let info = Line::from(vec![
-            Span::styled("Active Forwardings: ", Style::default().fg(Color::White)),
-            Span::styled(forwarding_count.to_string(), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("  |  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Press 'q' to quit", Style::default().fg(Color::Yellow)),
+            Span::styled("Servers: ", Style::default().fg(Color::White)),
+            Span::styled(server_count.to_string(), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("  |  Forwardings: ", Style::default().fg(Color::White)),
+            Span::styled(total_forwardings.to_string(), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("  |  Press 'q' to quit", Style::default().fg(Color::Yellow)),
         ]);
 
         let paragraph = Paragraph::new(info)
@@ -166,7 +170,7 @@ impl App {
     fn render_forwarding_table(&mut self, f: &mut ratatui::Frame, area: Rect) {
         let monitor = self.monitor.lock().unwrap();
 
-        let header_cells = ["Status", "Local Port", "Remote", "Server", "Process", "Traffic", "Uptime"]
+        let header_cells = ["Status", "Local Port", "Remote", "Process", "Traffic", "Uptime"]
             .iter()
             .map(|h| Cell::from(*h).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
 
@@ -174,49 +178,69 @@ impl App {
             .height(1)
             .bottom_margin(1);
 
-        let rows = monitor.iter_active_forwardings().map(|forwarding| {
-            let status_style = match forwarding.status {
-                ForwardingStatus::Active => Style::default().fg(Color::Green),
-                ForwardingStatus::Error => Style::default().fg(Color::Red),
-                ForwardingStatus::Unknown => Style::default().fg(Color::Yellow),
-            };
+        let mut rows = Vec::new();
+        
+        for server in monitor.iter_servers() {
+            // Server header row - created inline to avoid borrow issues
+            let server_info = format!(
+                "{} | {}@{}:{} | {} forwardings",
+                server.name,
+                server.username,
+                server.host,
+                server.port,
+                server.forwardings.len()
+            );
+            
+            let server_cell = Cell::from(server_info)
+                .style(Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD));
+            
+            rows.push(Row::new(vec![server_cell]).height(1));
+            
+            // Forwarding rows for this server
+            for forwarding in &server.forwardings {
+                let status_style = match forwarding.status {
+                    ForwardingStatus::Active => Style::default().fg(Color::Green),
+                    ForwardingStatus::Error => Style::default().fg(Color::Red),
+                    ForwardingStatus::Unknown => Style::default().fg(Color::Yellow),
+                };
 
-            let status_str = match forwarding.status {
-                ForwardingStatus::Active => "● Active",
-                ForwardingStatus::Error => "✗ Error",
-                ForwardingStatus::Unknown => "? Unknown",
-            };
+                let status_str = match forwarding.status {
+                    ForwardingStatus::Active => "  ● Active",
+                    ForwardingStatus::Error => "  ✗ Error",
+                    ForwardingStatus::Unknown => "  ? Unknown",
+                };
 
-            let process = monitor.get_process_for_port(forwarding.local_port)
-                .map(|s| s.as_str())
-                .unwrap_or("-");
+                let process = monitor.get_process_for_port(forwarding.local_port)
+                    .map(|s| s.as_str())
+                    .unwrap_or("-");
 
-            let traffic = monitor.get_traffic_for_port(forwarding.local_port)
-                .map(|t| format!("↑{} ↓{}", format_bytes(t.bytes_sent), format_bytes(t.bytes_received)))
-                .unwrap_or("-".to_string());
+                let traffic = monitor.get_traffic_for_port(forwarding.local_port)
+                    .map(|t| format!("↑{} ↓{}", format_bytes(t.bytes_sent), format_bytes(t.bytes_received)))
+                    .unwrap_or("-".to_string());
 
-            let uptime = format_duration(monitor.get_uptime(forwarding.created_at));
+                let uptime = format_duration(monitor.get_uptime(forwarding.created_at));
 
-            let cells = vec![
-                Cell::from(status_str).style(status_style),
-                Cell::from(forwarding.local_port.to_string()).style(Style::default().fg(Color::Blue)),
-                Cell::from(format!("{}:{}", forwarding.remote_host, forwarding.remote_port)),
-                Cell::from(forwarding.server_name.clone()),
-                Cell::from(process),
-                Cell::from(traffic),
-                Cell::from(uptime),
-            ];
+                let cells = vec![
+                    Cell::from(status_str).style(status_style),
+                    Cell::from(forwarding.local_port.to_string()).style(Style::default().fg(Color::Blue)),
+                    Cell::from(format!("{}:{}", forwarding.remote_host, forwarding.remote_port)),
+                    Cell::from(process),
+                    Cell::from(traffic),
+                    Cell::from(uptime),
+                ];
 
-            Row::new(cells).height(1)
-        });
+                rows.push(Row::new(cells).height(1));
+            }
+        }
 
         let table = Table::new(
             rows,
             [
                 Constraint::Length(12),
                 Constraint::Length(11),
-                Constraint::Length(22),
-                Constraint::Length(15),
+                Constraint::Length(25),
                 Constraint::Length(15),
                 Constraint::Length(18),
                 Constraint::Length(10),
@@ -226,7 +250,7 @@ impl App {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Port Forwardings ")
+                .title(" Servers & Forwardings ")
                 .border_style(Style::default().fg(Color::Cyan)),
         )
         .highlight_style(
@@ -242,7 +266,6 @@ impl App {
     fn render_footer(&self, f: &mut ratatui::Frame, area: Rect) {
         let help_text = Line::from(vec![
             Span::styled("↑/↓ or j/k: Navigate  ", Style::default().fg(Color::Gray)),
-            Span::styled("Home/End: Jump  ", Style::default().fg(Color::Gray)),
             Span::styled("q/Esc: Quit", Style::default().fg(Color::Yellow)),
         ]);
 
@@ -277,7 +300,7 @@ fn format_bytes(bytes: u64) -> String {
 fn format_duration(duration: Duration) -> String {
     let secs = duration.as_secs();
     let mins = secs / 60;
-    let hours = mins / 60;
+    let hours = mins / 24;
     let days = hours / 24;
 
     if days > 0 {

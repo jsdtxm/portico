@@ -31,6 +31,14 @@ fn main() -> std::io::Result<()> {
     for server in &config.servers {
         println!("Connecting to server: {}", server.name);
         
+        // Add server to monitor first
+        monitor.lock().unwrap().add_server(
+            server.name.clone(),
+            server.host.clone(),
+            server.port,
+            server.username.clone(),
+        );
+        
         let mut connection = match SshConnection::new(
             server,
             config.get_connect_timeout_secs(),
@@ -55,11 +63,11 @@ fn main() -> std::io::Result<()> {
             ) {
                 Ok(_) => {
                     println!("Port forwarding established");
-                    monitor.lock().unwrap().add_forwarding_simple(
+                    monitor.lock().unwrap().add_forwarding_to_server(
+                        &server.name,
                         forwarding.local_port,
                         forwarding.remote_host.clone(),
                         forwarding.remote_port,
-                        server.name.clone(),
                     );
                 }
                 Err(e) => {
