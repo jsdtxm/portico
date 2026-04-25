@@ -1,20 +1,20 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
     pub servers: Vec<Server>,
     pub timeout: Option<TimeoutConfig>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TimeoutConfig {
     pub connect_timeout_secs: Option<u64>,
     pub read_timeout_secs: Option<u64>,
     pub write_timeout_secs: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Server {
     pub name: String,
     pub host: String,
@@ -25,7 +25,7 @@ pub struct Server {
     pub forwardings: Vec<Forwarding>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Forwarding {
     pub local_port: u16,
     pub remote_host: String,

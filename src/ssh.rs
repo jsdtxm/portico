@@ -1,7 +1,5 @@
-use ssh2::Session;
-use std::net::{TcpStream, ToSocketAddrs};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::process::Command;
+use std::path::PathBuf;
 use crate::config::Server;
 
 fn expand_tilde(path: &str) -> PathBuf {
@@ -19,55 +17,54 @@ fn expand_tilde(path: &str) -> PathBuf {
 }
 
 pub struct SshConnection {
-    session: Session,
+    server: Server,
 }
 
 impl SshConnection {
     pub fn new(
         server: &Server,
-        connect_timeout_secs: u64,
-        read_timeout_secs: u64,
-        write_timeout_secs: u64,
+        _connect_timeout_secs: u64,
+        _read_timeout_secs: u64,
+        _write_timeout_secs: u64,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let addr_str = format!("{}:{}", server.host, server.port);
-        let addr = addr_str.to_socket_addrs()?
-            .next()
-            .ok_or("Could not resolve address")?;
-        
-        let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(connect_timeout_secs))?;
-        tcp.set_read_timeout(Some(Duration::from_secs(read_timeout_secs)))?;
-        tcp.set_write_timeout(Some(Duration::from_secs(write_timeout_secs)))?;
-        
-        let mut session = Session::new()?;
-        session.set_tcp_stream(tcp);
-        session.handshake()?;
-        
-        if let Some(password) = &server.password {
-            session.userauth_password(&server.username, password)?;
-        } else if let Some(private_key) = &server.private_key {
-            let expanded_path = expand_tilde(private_key);
-            session.userauth_pubkey_file(
-                &server.username,
-                None,
-                &expanded_path,
-                None,
-            )?;
-        } else {
-            return Err("No authentication method provided".into());
-        }
-        
         Ok(Self {
-            session,
+            server: server.clone(),
         })
     }
     
     pub fn forward_port(
-        &mut self,
-        _local_port: u16,
-        remote_host: &str,
+        &self,
+        local_port: u16,
+        remote_host: String,
         remote_port: u16,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.session.channel_direct_tcpip(remote_host, remote_port, None)?;
+        let mut cmd = Command::new("ssh");
+        
+        // 端口转发配置: -L local_port:remote_host:remote_port
+        cmd.arg("-L");
+        cmd.arg(format!("{}:{}:{}", local_port, remote_host, remote_port));
+        
+        // 连接选项
+        cmd.arg("-N"); // 不执行远程命令
+        cmd.arg("-o");
+        cmd.arg("StrictHostKeyChecking=no");
+        cmd.arg("-o");
+        cmd.arg("UserKnownHostsFile=/dev/null");
+        
+        // 服务器信息
+        cmd.arg(format!("{}@{}", self.server.username, self.server.host));
+        cmd.arg("-p");
+        cmd.arg(self.server.port.to_string());
+        
+        // 私钥选项
+        if let Some(private_key) = &self.server.private_key {
+            cmd.arg("-i");
+            cmd.arg(expand_tilde(private_key));
+        }
+        
+        // 启动 SSH 进程
+        cmd.spawn()?;
+        
         Ok(())
     }
 }

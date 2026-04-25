@@ -39,7 +39,7 @@ fn main() -> std::io::Result<()> {
             server.username.clone(),
         );
         
-        let mut connection = match SshConnection::new(
+        let connection = match SshConnection::new(
             server,
             config.get_connect_timeout_secs(),
             config.get_read_timeout_secs(),
@@ -58,7 +58,7 @@ fn main() -> std::io::Result<()> {
             
             match connection.forward_port(
                 forwarding.local_port,
-                &forwarding.remote_host,
+                forwarding.remote_host.clone(),
                 forwarding.remote_port
             ) {
                 Ok(_) => {
