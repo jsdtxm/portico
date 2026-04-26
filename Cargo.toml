@@ -12,3 +12,4 @@ sysinfo = "0.29"
 tokio = { version = "1.35", features = ["full"] }
 ratatui = "0.26"
 crossterm = "0.28"
+ctrlc = "3.4"

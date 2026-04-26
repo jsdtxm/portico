@@ -13,6 +13,8 @@ use tui::App;
 use std::thread;
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
+use crossterm::{execute, terminal};
+use ctrlc;
 
 fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
@@ -27,6 +29,7 @@ fn main() -> std::io::Result<()> {
     };
     
     let monitor = Arc::new(Mutex::new(Monitor::new()));
+    let connections: Arc<Mutex<Vec<SshConnection>>> = Arc::new(Mutex::new(Vec::new()));
     
     for server in &config.servers {
         println!("Connecting to server: {}", server.name);
@@ -75,6 +78,8 @@ fn main() -> std::io::Result<()> {
                 }
             }
         }
+        
+        connections.lock().unwrap().push(connection);
     }
     
     // 检查是否有活跃转发
@@ -82,6 +87,17 @@ fn main() -> std::io::Result<()> {
         println!("No active port forwardings. Exiting.");
         return Ok(());
     }
+    
+    // 设置信号处理
+    let connections_clone = Arc::clone(&connections);
+    ctrlc::set_handler(move || {
+        println!("\nReceived termination signal, cleaning up SSH connections...");
+        let conns = connections_clone.lock().unwrap();
+        for conn in conns.iter() {
+            conn.stop_all();
+        }
+        std::process::exit(0);
+    }).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     
     // 启动监控线程
     let monitor_clone = Arc::clone(&monitor);
@@ -92,9 +108,18 @@ fn main() -> std::io::Result<()> {
         }
     });
     
-    // 启动TUI
+    // 清除屏幕后启动TUI
+    let mut stdout = std::io::stdout();
+    execute!(stdout, terminal::Clear(terminal::ClearType::All))?;
+   // 启动TUI
     let mut app = App::new(monitor);
     app.run()?;
+    
+    // 显式停止所有连接
+    let conns = connections.lock().unwrap();
+    for conn in conns.iter() {
+        conn.stop_all();
+    }
     
     Ok(())
 }

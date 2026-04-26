@@ -1,5 +1,6 @@
-use std::process::Command;
+use std::process::{Command, Child, Stdio};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use crate::config::Server;
 
 fn expand_tilde(path: &str) -> PathBuf {
@@ -16,8 +17,10 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+#[derive(Clone)]
 pub struct SshConnection {
     server: Server,
+    children: Arc<Mutex<Vec<Child>>>,
 }
 
 impl SshConnection {
@@ -29,6 +32,7 @@ impl SshConnection {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             server: server.clone(),
+            children: Arc::new(Mutex::new(Vec::new())),
         })
     }
     
@@ -46,10 +50,15 @@ impl SshConnection {
         
         // 连接选项
         cmd.arg("-N"); // 不执行远程命令
+        cmd.arg("-q"); // 安静模式
         cmd.arg("-o");
         cmd.arg("StrictHostKeyChecking=no");
         cmd.arg("-o");
         cmd.arg("UserKnownHostsFile=/dev/null");
+        cmd.arg("-o");
+        cmd.arg("LogLevel=QUIET");
+        cmd.arg("-o");
+        cmd.arg("BatchMode=yes");
         
         // 服务器信息
         cmd.arg(format!("{}@{}", self.server.username, self.server.host));
@@ -62,9 +71,29 @@ impl SshConnection {
             cmd.arg(expand_tilde(private_key));
         }
         
-        // 启动 SSH 进程
-        cmd.spawn()?;
+        // 重定向输出
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+        
+        // 启动 SSH 进程并保存句柄
+        let child = cmd.spawn()?;
+        self.children.lock().unwrap().push(child);
         
         Ok(())
+    }
+    
+    pub fn stop_all(&self) {
+        let mut children = self.children.lock().unwrap();
+        for child in children.iter_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        children.clear();
+    }
+}
+
+impl Drop for SshConnection {
+    fn drop(&mut self) {
+        self.stop_all();
     }
 }
