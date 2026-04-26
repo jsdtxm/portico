@@ -23,7 +23,9 @@ pub struct ForwardingInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForwardingStatus {
     Active,
+    #[allow(dead_code)]
     Error,
+    #[allow(dead_code)]
     Unknown,
 }
 
@@ -31,6 +33,7 @@ pub enum ForwardingStatus {
 pub struct TrafficStats {
     pub bytes_sent: u64,
     pub bytes_received: u64,
+    #[allow(dead_code)]
     pub last_update: Instant,
 }
 
