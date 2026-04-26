@@ -28,10 +28,12 @@ pub struct App {
 
 impl App {
     pub fn new(monitor: Arc<Mutex<Monitor>>) -> Self {
+        let mut table_state = TableState::default();
+        table_state.select(Some(0));
         Self {
             monitor,
             should_quit: false,
-            table_state: TableState::default(),
+            table_state,
         }
     }
 
